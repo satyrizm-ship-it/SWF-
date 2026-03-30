@@ -1,0 +1,3138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SWF 자수기 설치 관리</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Lucide React -->
+    <script src="https://unpkg.com/lucide-react@0.292.0/dist/umd/lucide-react.min.js"></script>
+
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #f3f4f6;
+      }
+      /* Custom Scrollbar Hide */
+      .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+      }
+      .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+      @keyframes fade-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      .animate-fade-in {
+        animation: fade-in 0.3s ease-out forwards;
+      }
+      @keyframes fade-in-up {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .animate-fade-in-up {
+        animation: fade-in-up 0.3s ease-out forwards;
+      }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react,typescript">
+        const { useState, useEffect, useRef, useMemo } = React;
+        const lucideReact = window.lucideReact || window.lucide;
+        const {  
+            Menu, Lock, X, RefreshCw, Cloud, AlertTriangle, Bell, BarChart2, ChevronRight, AlertCircle, 
+            Wrench, Plus, ArrowRight, MapPin, Phone, Mail, Building2, User, Printer, Paperclip, Upload, 
+            CheckCircle2, FileSpreadsheet, Download, Filter, ListFilter, Edit2, Loader2, Image: ImageIcon, 
+            ChevronLeft, Calendar, List, Trash2 
+        } = lucideReact;
+
+        // --- TYPES ---
+        // Enums need to be defined manually or let Babel handle TS enums
+        enum Priority {
+          HIGH = '경고',
+          MEDIUM = '주의',
+          LOW = '관심',
+          NORMAL = '안정',
+        }
+
+        enum IssueGrade {
+          INQUIRY = '문의',
+          MINOR = '경미',
+          MAJOR = '중대',
+          CRITICAL = '치명'
+        }
+
+        enum ServiceType {
+          AS = 'A/S',
+          BS = 'B/S',
+        }
+
+        enum ServiceStatus {
+          RESOLVED = 'Resolved',
+          PENDING = 'Pending',
+          SCHEDULED = 'Scheduled'
+        }
+
+        // --- CONSTANTS ---
+        const MOCK_DATA = [
+          {
+            id: 'c1',
+            name: '글로벌 스티치 (Global Stitch Corp)',
+            representative: '김철수',
+            address: '서울특별시 금천구 가산동 123-45',
+            contactEmail: 'contact@globalstitch.com',
+            contactPhone: '02-1234-5678',
+            priority: Priority.HIGH,
+            machines: [
+              {
+                id: 'm1',
+                modelName: 'SWF/K-UH1204-45',
+                serialNumber: 'SN-998231',
+                installDate: '2025-01-12',
+                warrantyStatus: 'Active',
+                imageUrl: 'https://picsum.photos/400/300?random=1'
+              },
+              {
+                id: 'm2',
+                modelName: 'SWF/MA-6',
+                serialNumber: 'SN-445210',
+                installDate: '2022-05-14',
+                warrantyStatus: 'Expired',
+                imageUrl: 'https://picsum.photos/400/300?random=2'
+              }
+            ],
+            serviceHistory: [
+              {
+                id: 's1',
+                date: '2025-02-12',
+                type: ServiceType.AS,
+                machineId: 'm1',
+                machineModel: 'SWF/K-UH1204-45',
+                issue: '바늘 센서 오작동',
+                resolution: '센서 부품 #442 교체 및 타이밍 재조정',
+                technician: '박지성',
+                status: ServiceStatus.RESOLVED
+              },
+              {
+                id: 's2',
+                date: '2023-12-05',
+                type: ServiceType.BS,
+                machineId: 'm1',
+                machineModel: 'SWF/K-UH1204-45',
+                issue: '정기 점검 (3개월)',
+                resolution: '오일링 및 텐션 조절',
+                technician: '김민재',
+                status: ServiceStatus.RESOLVED
+              }
+            ]
+          }
+        ];
+
+        // --- SERVICES ---
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz_A2v15fR8Ra0sTYJAm28pgXn9gqJ6uiP7CyI0Zqt2KyqjqLVwYgFrQk6EBp_jSDrz/exec';
+
+        const fetchCompaniesFromSheet = async () => {
+          try {
+            const url = `${SCRIPT_URL}?mode=data&t=${new Date().getTime()}`;
+            const response = await fetch(url, { method: 'GET' });
+            if (!response.ok) {
+              console.warn('GET response not ok:', response.status);
+              return [];
+            }
+            const json = await response.json();
+            return json;
+          } catch (error) {
+            console.warn("Fetch Error (GET):", error);
+            return [];
+          }
+        };
+
+        const saveInstallationToSheet = async (formData) => {
+          try {
+            const payload = {
+              action: 'installation',
+              company: formData.company,   
+              model: formData.model,
+              serial: formData.serial, 
+              date: formData.date,   
+              installer: formData.installer,
+              photo: formData.photo
+            };
+            const response = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            return result.result === 'success';
+          } catch (error) {
+            console.error("Fetch Error (POST Install):", error);
+            return false;
+          }
+        };
+
+        const saveServiceToSheet = async (serviceData) => {
+          try {
+            const payload = {
+              action: 'service',
+              id: serviceData.id,
+              date: serviceData.date,
+              type: serviceData.type,
+              company: serviceData.company,
+              model: serviceData.model,
+              serial: serviceData.serial,
+              issue: serviceData.issue,
+              resolution: serviceData.resolution,
+              technician: serviceData.technician,
+              priority: serviceData.priority,
+              photo: serviceData.photo || ''
+            };
+            const response = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            return result.result === 'success';
+          } catch (error) {
+            console.error("Fetch Error (POST Service):", error);
+            return false;
+          }
+        };
+
+        const updateServiceInSheet = async (serviceData) => {
+          try {
+            const payload = {
+              action: 'update_service',
+              id: serviceData.id,
+              date: serviceData.date,
+              type: serviceData.type,
+              issue: serviceData.issue,
+              resolution: serviceData.resolution,
+              technician: serviceData.technician,
+              priority: serviceData.priority,
+              photo: serviceData.photo || ''
+            };
+            const response = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            return result.result === 'success';
+          } catch (error) {
+            console.error("Fetch Error (POST Update Service):", error);
+            return false; 
+          }
+        };
+
+        const deleteServiceFromSheet = async (serviceId) => {
+          try {
+            const payload = {
+              action: 'delete_service',
+              id: serviceId
+            };
+            const response = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            return result.result === 'success';
+          } catch (error) {
+            console.error("Fetch Error (POST Delete Service):", error);
+            return false;
+          }
+        };
+
+        const deleteMachineFromSheet = async (machineId) => {
+          try {
+            const payload = {
+              action: 'delete_machine',
+              id: machineId
+            };
+            const response = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            return result.result === 'success';
+          } catch (error) {
+            console.error("Fetch Error (POST Delete Machine):", error);
+            return false;
+          }
+        };
+
+        const updateMonthlyScheduleInSheet = async (scheduleData) => {
+          try {
+            const payload = {
+              action: 'update_monthly_schedule',
+              id: scheduleData.id,
+              rowIndex: scheduleData.rowIndex,
+              model: scheduleData.model,
+              serial: scheduleData.serial,
+              company: scheduleData.company,
+              region: scheduleData.region,
+              installer: scheduleData.installer,
+              date: scheduleData.date,
+              status: scheduleData.status,
+              note: scheduleData.note,
+              photo: scheduleData.photo || ''
+            };
+            const response = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            return result.result === 'success';
+          } catch (error) {
+            console.error("Fetch Error (POST Update Monthly Schedule):", error);
+            return false;
+          }
+        };
+
+        const updateCompanyInSheet = async (companyData) => {
+          try {
+            const payload = {
+              action: 'update_company',
+              originalName: companyData.originalName,
+              name: companyData.name,
+              representative: companyData.representative,
+              address: companyData.address,
+              phone: companyData.contactPhone,
+              email: companyData.contactEmail,
+              phone2: companyData.contactPhone2,
+              note: companyData.note
+            };
+            const response = await fetch(SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            return result.result === 'success';
+          } catch (error) {
+            console.error("Fetch Error (POST Update Company):", error);
+            return false;
+          }
+        };
+
+        // --- COMPONENTS ---
+        
+        const MonthlyScheduleModal = ({ 
+          isOpen, 
+          onClose, 
+          schedules,
+          targetYear,
+          targetMonth,
+          isAdminMode
+        }) => {
+          if (!isOpen) return null;
+
+          const getStatusStyle = (status) => {
+            const s = status ? status.trim() : '';
+            if (s === 'Completed' || s === '완료') return 'bg-green-100 text-green-700 border-green-200';
+            if (s === 'Scheduled' || s === '예정') return 'bg-blue-100 text-blue-700 border-blue-200';
+            if (s === 'Pending' || s === '보류') return 'bg-gray-100 text-gray-600 border-gray-200';
+            return 'bg-gray-50 text-gray-500';
+          };
+
+          const getStatusText = (status) => {
+            const s = status ? status.trim() : '';
+            if (s === 'Completed' || s === '완료') return '완료';
+            if (s === 'Scheduled' || s === '예정') return '예정';
+            if (s === 'Pending' || s === '보류') return '보류';
+            return s;
+          };
+
+          const getInitials = (name) => {
+            return name ? name.slice(0, 2).toUpperCase() : '?';
+          };
+
+          const handleExportCSV = () => {
+            if (schedules.length === 0) {
+              alert('출력할 데이터가 없습니다.');
+              return;
+            }
+
+            let csvContent = '\uFEFF';
+            csvContent += "MODEL,SN,업체명,지역,설치예정자,설치예정일,완료여부,비고\n";
+
+            schedules.forEach(item => {
+              const row = [
+                `"${item.model.replace(/"/g, '""')}"`,
+                `"${item.serial.replace(/"/g, '""')}"`,
+                `"${item.company.replace(/"/g, '""')}"`,
+                `"${item.region.replace(/"/g, '""')}"`,
+                `"${item.installer.replace(/"/g, '""')}"`,
+                `"${item.date}"`,
+                `"${item.status}"`,
+                `"${(item.note || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`
+              ].join(",");
+              csvContent += row + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const link = document.createElement("a");
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", `Installation_Schedule_${targetYear}_${targetMonth}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+          };
+
+          return (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden animate-fade-in-up flex flex-col max-h-[90vh]">
+                <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between bg-white">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">이달의 설치 예정 및 현황</h2>
+                    <p className="text-sm text-gray-500 mt-1">{targetYear}년 {targetMonth}월 내수 설치</p>
+                  </div>
+                  <button 
+                    onClick={onClose}
+                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-50 transition-colors"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto flex-1 p-0">
+                  <table className="w-full text-left border-collapse whitespace-nowrap">
+                    <thead className="bg-gray-50 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">MODEL</th>
+                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">업체명</th>
+                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">지역</th>
+                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">설치 예정자</th>
+                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">설치 예정일</th>
+                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100 text-center">완료 여부</th>
+                        <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100 text-center">비고</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {schedules.length > 0 ? (
+                        schedules.map((item) => (
+                          <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-gray-900 text-sm">{item.model}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm font-semibold text-gray-800">{item.company}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center text-gray-600 text-sm">
+                                {item.region}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                 <span className="text-sm font-medium text-gray-700">{item.installer}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                               <div className="text-sm text-gray-600 font-medium font-mono">
+                                 {item.date}
+                               </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusStyle(item.status)}`}>
+                                {getStatusText(item.status)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className="text-sm text-gray-500">{item.note}</span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                            <div className="flex flex-col items-center">
+                              <Calendar size={40} className="text-gray-300 mb-2" />
+                              <p>등록된 설치 일정이 없습니다.</p>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="px-6 py-4 border-t border-gray-100 bg-white flex items-center justify-between">
+                  <span className="text-sm text-gray-500 font-medium">총 {schedules.length}건의 설치 기록</span>
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={onClose}
+                      className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+                    >
+                      닫기
+                    </button>
+                    <button 
+                      onClick={handleExportCSV}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center shadow-sm"
+                    >
+                      <Printer size={16} className="mr-2" />
+                      출력하기
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const IntensiveCareModal = ({ isOpen, onClose, companies }) => {
+          const [viewMode, setViewMode] = useState('list');
+          const [currentDate, setCurrentDate] = useState(new Date());
+          const [selectedDateDetails, setSelectedDateDetails] = useState(null);
+
+          const recentInstallations = useMemo(() => {
+            const threeMonthsAgo = new Date();
+            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+            threeMonthsAgo.setHours(0, 0, 0, 0);
+
+            const list = [];
+
+            companies.forEach(company => {
+              company.machines.forEach(machine => {
+                const d = new Date(machine.installDate);
+                if (!isNaN(d.getTime()) && d >= threeMonthsAgo) {
+                  list.push({
+                    companyName: company.name,
+                    modelName: machine.modelName,
+                    installDate: machine.installDate,
+                    machineId: machine.id
+                  });
+                }
+              });
+            });
+
+            return list.sort((a, b) => new Date(b.installDate).getTime() - new Date(a.installDate).getTime());
+          }, [companies]);
+
+          const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+          const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
+
+          const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+          const handleNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+
+          const renderCalendar = () => {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const daysInMonth = getDaysInMonth(year, month);
+            const firstDay = getFirstDayOfMonth(year, month);
+            const days = [];
+
+            for (let i = 0; i < firstDay; i++) {
+              days.push(<div key={`empty-${i}`} className="h-14 bg-gray-50/30 border border-gray-100/50"></div>);
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const installationsOnDate = recentInstallations.filter(item => item.installDate === dateStr);
+              const hasInstallation = installationsOnDate.length > 0;
+
+              days.push(
+                <div 
+                  key={day} 
+                  className={`h-14 border border-gray-100 relative flex flex-col items-center justify-start pt-1 transition-colors ${hasInstallation ? 'cursor-pointer hover:bg-green-50' : ''}`}
+                  onClick={() => {
+                    if (hasInstallation) {
+                      setSelectedDateDetails({
+                        date: dateStr,
+                        items: installationsOnDate.map(i => ({ company: i.companyName, model: i.modelName }))
+                      });
+                    }
+                  }}
+                >
+                  <span className={`text-sm font-medium ${hasInstallation ? 'z-10 text-green-800' : 'text-gray-700'}`}>
+                    {day}
+                  </span>
+                  {hasInstallation && (
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-green-200/60 rounded-full flex items-center justify-center"></div>
+                  )}
+                  {hasInstallation && (
+                     <div className="absolute bottom-1 text-[10px] font-bold text-green-700 z-10">
+                       {installationsOnDate.length}건
+                     </div>
+                  )}
+                </div>
+              );
+            }
+            return days;
+          };
+
+          if (!isOpen) return null;
+
+          return (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in-up flex flex-col max-h-[85vh]">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white">
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-900">3개월 이내 설치 현황</h2>
+                    <p className="text-xs text-gray-500 mt-1">집중 관리 대상 기계 목록 및 일정</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                     <div className="flex bg-gray-100 rounded-lg p-1">
+                        <button 
+                          onClick={() => setViewMode('list')}
+                          className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                          title="리스트 보기"
+                        >
+                          <List size={18} />
+                        </button>
+                        <button 
+                          onClick={() => setViewMode('calendar')}
+                          className={`p-1.5 rounded-md transition-all ${viewMode === 'calendar' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                          title="달력 보기"
+                        >
+                          <Calendar size={18} />
+                        </button>
+                     </div>
+                     <button 
+                      onClick={onClose}
+                      className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-50 transition-colors ml-2"
+                    >
+                      <X size={24} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-0 bg-gray-50/50">
+                  {viewMode === 'list' ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse whitespace-nowrap">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr>
+                            <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">설치일</th>
+                            <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">업체명</th>
+                            <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">모델명</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                          {recentInstallations.length > 0 ? (
+                            recentInstallations.map((item) => (
+                              <tr key={item.machineId} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-3 text-sm text-gray-600 font-mono">{item.installDate}</td>
+                                <td className="px-6 py-3 text-sm font-semibold text-gray-900">{item.companyName}</td>
+                                <td className="px-6 py-3 text-sm text-gray-700">{item.modelName}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={3} className="px-6 py-12 text-center text-gray-500">
+                                데이터가 없습니다.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-4 px-2">
+                         <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-100 rounded-full">
+                           <ChevronLeft size={20} className="text-gray-600" />
+                         </button>
+                         <span className="text-lg font-bold text-gray-800">
+                           {currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월
+                         </span>
+                         <button onClick={handleNextMonth} className="p-1 hover:bg-gray-100 rounded-full">
+                           <ChevronRight size={20} className="text-gray-600" />
+                         </button>
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                        {['일', '월', '화', '수', '목', '금', '토'].map(day => (
+                          <div key={day} className="bg-gray-50 py-2 text-center text-xs font-semibold text-gray-500">
+                            {day}
+                          </div>
+                        ))}
+                        <div className="contents bg-white">
+                          {renderCalendar()}
+                        </div>
+                      </div>
+                      
+                      <div className="mt-3 flex items-center justify-end gap-2 text-xs text-gray-500">
+                         <div className="w-3 h-3 bg-green-200 rounded-full"></div>
+                         <span>설치일 (클릭하여 상세 보기)</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {selectedDateDetails && (
+                <div className="absolute inset-0 z-[90] flex items-center justify-center bg-black/20 backdrop-blur-[1px]" onClick={() => setSelectedDateDetails(null)}>
+                   <div className="bg-white rounded-lg shadow-xl p-4 w-64 animate-fade-in-up border border-gray-100" onClick={e => e.stopPropagation()}>
+                      <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-100">
+                        <h4 className="font-bold text-gray-900">{selectedDateDetails.date}</h4>
+                        <button onClick={() => setSelectedDateDetails(null)} className="text-gray-400 hover:text-gray-600">
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <ul className="space-y-3">
+                        {selectedDateDetails.items.map((item, idx) => (
+                          <li key={idx} className="text-sm">
+                            <div className="font-semibold text-gray-800">{item.company}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">{item.model}</div>
+                          </li>
+                        ))}
+                      </ul>
+                   </div>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        const EditCompanyModal = ({ isOpen, onClose, company, onSave, isAdminMode }) => {
+          const [formData, setFormData] = useState({
+            name: '',
+            representative: '',
+            contactPhone: '',
+            contactPhone2: '',
+            address: '',
+            contactEmail: '',
+            note: ''
+          });
+          const [isSubmitting, setIsSubmitting] = useState(false);
+
+          useEffect(() => {
+            if (isOpen && company) {
+              setFormData({
+                name: company.name,
+                representative: company.representative,
+                contactPhone: company.contactPhone || '',
+                contactPhone2: company.contactPhone2 || '',
+                address: company.address || '',
+                contactEmail: company.contactEmail || '',
+                note: company.note || ''
+              });
+            }
+          }, [isOpen, company]);
+
+          if (!isOpen) return null;
+
+          const handleInputChange = (e) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
+          };
+
+          const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (isSubmitting) return;
+
+            setIsSubmitting(true);
+            try {
+              await onSave({
+                ...formData,
+                originalName: company.name
+              });
+              onClose();
+            } catch (error) {
+              console.error("Failed to update company:", error);
+              alert("업체 정보 수정 중 오류가 발생했습니다.");
+            } finally {
+              setIsSubmitting(false);
+            }
+          };
+
+          return (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white">
+                  <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <Building2 size={20} className="text-blue-600" />
+                    업체 정보 수정
+                  </h3>
+                  <button 
+                    onClick={onClose}
+                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-50 transition-colors"
+                    disabled={isSubmitting}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">업체명</label>
+                    <input 
+                      type="text" 
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      disabled={!isAdminMode}
+                      className={`w-full px-3 py-2 border border-gray-200 rounded-lg ${!isAdminMode ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : 'focus:outline-none focus:ring-2 focus:ring-blue-500'}`}
+                    />
+                    {!isAdminMode && <p className="text-xs text-gray-400 mt-1">* 업체명은 관리자 모드에서만 수정할 수 있습니다.</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <User size={14} /> 대표자
+                    </label>
+                    <input 
+                      type="text" 
+                      name="representative"
+                      value={formData.representative}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="홍길동"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <Phone size={14} /> 연락처 1
+                    </label>
+                    <input 
+                      type="text" 
+                      name="contactPhone"
+                      value={formData.contactPhone}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="010-1234-5678"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <Phone size={14} /> 연락처 2
+                    </label>
+                    <input 
+                      type="text" 
+                      name="contactPhone2"
+                      value={formData.contactPhone2}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="010-9876-5432 (선택)"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <MapPin size={14} /> 주소
+                    </label>
+                    <input 
+                      type="text" 
+                      name="address"
+                      value={formData.address}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="서울시 강남구..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <Mail size={14} /> 이메일
+                    </label>
+                    <input 
+                      type="email" 
+                      name="contactEmail"
+                      value={formData.contactEmail}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="example@email.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      비고
+                    </label>
+                    <textarea 
+                      name="note"
+                      value={formData.note}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
+                      placeholder="특이사항이나 메모를 입력하세요."
+                    />
+                  </div>
+
+                  <div className="pt-4 flex gap-3">
+                    <button 
+                      type="button" 
+                      onClick={onClose}
+                      className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                      disabled={isSubmitting}
+                    >
+                      취소
+                    </button>
+                    <button 
+                      type="submit"
+                      className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center"
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin mr-2" />
+                          저장 중...
+                        </>
+                      ) : (
+                        '저장하기'
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          );
+        };
+
+        const NewInstallationModal = ({ isOpen, onClose, onSave, isAdminMode = false }) => {
+          const [formData, setFormData] = useState({
+            clientName: '',
+            modelName: '',
+            serialNumber: '',
+            installDate: '',
+            installer: '',
+            password: '',
+          });
+          const [selectedImages, setSelectedImages] = useState([null, null, null]);
+          const [isSubmitting, setIsSubmitting] = useState(false);
+
+          if (!isOpen) return null;
+
+          const resizeImage = (file) => {
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  let width = img.width;
+                  let height = img.height;
+                  const MAX_SIZE = 1024;
+
+                  if (width > height) {
+                    if (width > MAX_SIZE) {
+                      height *= MAX_SIZE / width;
+                      width = MAX_SIZE;
+                    }
+                  } else {
+                    if (height > MAX_SIZE) {
+                      width *= MAX_SIZE / height;
+                      height = MAX_SIZE;
+                    }
+                  }
+
+                  canvas.width = width;
+                  canvas.height = height;
+                  const ctx = canvas.getContext('2d');
+                  ctx?.drawImage(img, 0, 0, width, height);
+                  resolve(canvas.toDataURL('image/jpeg', 0.6));
+                };
+                img.src = e.target?.result;
+              };
+              reader.readAsDataURL(file);
+            });
+          };
+
+          const handleInputChange = (e) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
+          };
+
+          const handleFileChange = (index) => async (e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              try {
+                const resized = await resizeImage(file);
+                setSelectedImages(prev => {
+                  const newImages = [...prev];
+                  newImages[index] = resized;
+                  return newImages;
+                });
+              } catch (err) {
+                console.error("Image resize error", err);
+                alert("이미지 처리 중 오류가 발생했습니다.");
+              }
+            }
+            e.target.value = '';
+          };
+
+          const removeImage = (index) => {
+            setSelectedImages(prev => {
+                const newImages = [...prev];
+                newImages[index] = null;
+                return newImages;
+            });
+          };
+
+          const handleSubmit = async (e) => {
+            e.preventDefault(); 
+            
+            if (isSubmitting) return; 
+            
+            if (!isAdminMode && formData.password !== '202603') {
+              alert('비밀번호가 올바르지 않습니다.');
+              return;
+            }
+
+            if (!formData.clientName || !formData.modelName || !formData.serialNumber || !formData.installDate) {
+              alert('필수 정보(업체명, 모델명, 시리얼, 설치일)를 모두 입력해주세요.');
+              return;
+            }
+
+            setIsSubmitting(true);
+            
+            try {
+                const combinedImage = selectedImages.filter(Boolean).join('|||');
+
+                await onSave({
+                  ...formData,
+                  imageUrl: combinedImage
+                });
+
+                setFormData({
+                  clientName: '',
+                  modelName: '',
+                  serialNumber: '',
+                  installDate: '',
+                  installer: '',
+                  password: '',
+                });
+                setSelectedImages([null, null, null]);
+            } catch (error) {
+                console.error("Save failed in modal:", error);
+            } finally {
+                setIsSubmitting(false);
+            }
+          };
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden animate-fade-in-up">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                  <h3 className="text-lg font-bold text-gray-900">신규 설치 등록</h3>
+                  <button 
+                    onClick={onClose}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={isSubmitting}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">업체명 (Client Name)</label>
+                      <input 
+                        type="text" 
+                        name="clientName"
+                        value={formData.clientName}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="예: 대한자수"
+                        required
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">기계 모델 (Model)</label>
+                        <input 
+                          type="text" 
+                          name="modelName"
+                          value={formData.modelName}
+                          onChange={handleInputChange}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="SWF/..."
+                          required
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">시리얼 번호 (S/N)</label>
+                        <input 
+                          type="text" 
+                          name="serialNumber"
+                          value={formData.serialNumber}
+                          onChange={handleInputChange}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="SN-123456"
+                          required
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">설치 일자</label>
+                        <input 
+                          type="date" 
+                          name="installDate"
+                          value={formData.installDate}
+                          onChange={handleInputChange}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">설치자 (Installer)</label>
+                        <input 
+                          type="text" 
+                          name="installer"
+                          value={formData.installer}
+                          onChange={handleInputChange}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="홍길동"
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">사진 첨부 (최대 3장)</label>
+                      <div className="grid grid-cols-3 gap-3">
+                        {[0, 1, 2].map((index) => (
+                          <div key={index} className="relative aspect-square">
+                            {selectedImages[index] ? (
+                              <div className="w-full h-full relative rounded-lg overflow-hidden border border-gray-200 group bg-gray-50">
+                                <img 
+                                  src={selectedImages[index]} 
+                                  alt={`Upload ${index + 1}`} 
+                                  className="w-full h-full object-cover" 
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeImage(index)}
+                                  className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className={`w-full h-full border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                 <Upload size={20} className="text-gray-400 mb-1" />
+                                 <span className="text-xs text-gray-500 font-medium">추가</span>
+                                 <input 
+                                   type="file" 
+                                   className="hidden" 
+                                   accept="image/*"
+                                   onChange={handleFileChange(index)}
+                                   disabled={isSubmitting}
+                                 />
+                              </label>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {!isAdminMode && (
+                      <div>
+                         <label className="block text-sm font-medium text-gray-700 mb-1">관리자 비밀번호</label>
+                         <div className="relative">
+                           <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+                           <input 
+                              type="password"
+                              name="password"
+                              value={formData.password}
+                              onChange={handleInputChange}
+                              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="비밀번호 입력 (저장 승인)"
+                              required
+                              disabled={isSubmitting}
+                           />
+                         </div>
+                         <p className="text-xs text-gray-500 mt-1">* 저장을 위해 관리자 비밀번호를 입력해주세요. (202603)</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      type="button" 
+                      onClick={onClose}
+                      className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                      disabled={isSubmitting}
+                    >
+                      취소
+                    </button>
+                    <button 
+                      type="submit"
+                      className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center"
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin mr-2" />
+                          저장 중...
+                        </>
+                      ) : (
+                        '저장하기'
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          );
+        };
+
+        const Statistics = () => {
+          return (
+            <div className="flex flex-col items-center justify-center h-full min-h-[400px] w-full animate-fade-in">
+              <div className="flex flex-col items-center gap-4 text-slate-500">
+                <span className="material-symbols-outlined text-6xl text-slate-300">construction</span>
+                <h2 className="text-2xl font-bold text-slate-700">준비중</h2>
+                <p className="text-sm">통계 페이지는 현재 준비 중입니다.</p>
+              </div>
+            </div>
+          );
+        };
+
+        const Dashboard = ({ 
+  companies, 
+  onSelectCompany, 
+  onAddCompany, 
+  isAdminMode, 
+  onDeleteCompany,
+  monthlySchedules
+}) => {
+  const { Search } = lucideReact;
+
+  const getElapsedDays = (dateStr) => {
+    if (!dateStr) return 0;
+    const start = new Date(dateStr).getTime();
+    if (isNaN(start)) return 0; 
+    const now = new Date().getTime();
+    const diff = now - start;
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  };
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterPriority, setFilterPriority] = useState('All');
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isIntensiveCareModalOpen, setIsIntensiveCareModalOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
+  
+  // 2026년도 설치 현황 계산 (Dashboard Card)
+  const targetYear = '2026';
+  const yearInstallations = useMemo(() => {
+    return companies.reduce((acc, company) => {
+      const count = company.machines ? company.machines.filter(m => m.installDate && m.installDate.startsWith(targetYear)).length : 0;
+      return acc + count;
+    }, 0);
+  }, [companies]);
+
+  // 3개월 이내 설치 현황 (기존 로직 유지)
+  const recentInstallations = useMemo(() => {
+    return companies.reduce((acc, company) => {
+      const recentMachines = company.machines ? company.machines.filter(m => {
+        const days = getElapsedDays(m.installDate);
+        return days <= 90;
+      }) : [];
+      return acc + recentMachines.length;
+    }, 0);
+  }, [companies]);
+
+  const statusCounts = useMemo(() => {
+    let high = 0;
+    let medium = 0;
+    let low = 0;
+    let normal = 0;
+
+    companies.forEach(company => {
+      if (!company.machines) return;
+      
+      company.machines.forEach(m => {
+        const days = getElapsedDays(m.installDate);
+        if (days <= 90) {
+          const machineHistory = company.serviceHistory ? company.serviceHistory.filter(r => r.machineId === m.id) : [];
+          
+          let totalCritical = 0;
+          let totalMajor = 0;
+          let totalMinor = 0;
+
+          machineHistory.forEach(record => {
+            if (record.priority === IssueGrade.CRITICAL) totalCritical++;
+            if (record.priority === IssueGrade.MAJOR) totalMajor++;
+            if (record.priority === IssueGrade.MINOR) totalMinor++;
+          });
+
+          let currentPriority = Priority.NORMAL;
+          if (totalMajor >= 2 || totalCritical >= 1) {
+            currentPriority = Priority.HIGH;
+          } else if (totalMinor >= 3 || totalMajor >= 1) {
+            currentPriority = Priority.MEDIUM;
+          } else if (totalMinor >= 2) {
+            currentPriority = Priority.LOW;
+          }
+          
+          if (currentPriority === Priority.HIGH) high++;
+          else if (currentPriority === Priority.MEDIUM) medium++;
+          else if (currentPriority === Priority.LOW) low++;
+          else normal++;
+        }
+      });
+    });
+    
+    return {
+      warning: high,
+      caution: medium,
+      interest: low,
+      normal: normal
+    };
+  }, [companies]);
+
+  const filteredCompanies = useMemo(() => {
+    const filtered = companies.filter(company => {
+      // toLowerCase 에러 방지를 위한 안전한 변환 (null/undefined 처리)
+      const safeLower = (val) => (val === undefined || val === null) ? '' : String(val).toLowerCase();
+
+      const term = safeLower(searchTerm);
+      const companyName = safeLower(company.name);
+
+      const matchesSearch = 
+        companyName.includes(term) ||
+        (company.machines && company.machines.some(m => safeLower(m.serialNumber).includes(term)));
+      
+      const matchesPriority = filterPriority === 'All' || company.priority === filterPriority || (filterPriority === Priority.NORMAL && !company.priority);
+
+      // 경과일 90일 이내 필터링 (설치된지 90일 이하인 기계가 하나라도 있으면 표시)
+      // 미래 날짜(예정)도 포함하기 위해 days <= 90 조건 사용 (미래는 음수이므로 포함됨)
+      const hasRecentMachine = company.machines && company.machines.some(m => {
+          const days = getElapsedDays(m.installDate);
+          return days <= 90;
+      });
+
+      return matchesSearch && matchesPriority && hasRecentMachine;
+    });
+
+    // 경과일이 적은 순서대로 정렬 (elapsed days ascending)
+    return filtered.sort((a, b) => {
+        const getDisplayElapsed = (c) => {
+            if (!c.machines || c.machines.length === 0) return Infinity;
+            
+            const sorted = [...c.machines].sort((m1, m2) => new Date(m2.installDate).getTime() - new Date(m1.installDate).getTime());
+            const recent = sorted.filter(m => getElapsedDays(m.installDate) <= 90);
+            const target = recent.length > 0 ? recent[0] : sorted[0];
+            
+            return getElapsedDays(target.installDate);
+        };
+
+        return getDisplayElapsed(a) - getDisplayElapsed(b);
+    });
+  }, [companies, searchTerm, filterPriority]);
+
+  // Pagination Logic
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterPriority]);
+
+  const totalPages = Math.ceil(filteredCompanies.length / ITEMS_PER_PAGE);
+  const paginatedCompanies = filteredCompanies.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case Priority.HIGH: return 'bg-red-100 text-red-700 border-red-200';
+      case Priority.MEDIUM: return 'bg-orange-100 text-orange-700 border-orange-200';
+      case Priority.LOW: return 'bg-blue-100 text-blue-700 border-blue-200'; 
+      case Priority.NORMAL: return 'bg-green-100 text-green-700 border-green-200'; 
+      default: return 'bg-green-100 text-green-700 border-green-200';
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full md:h-[calc(100vh-9rem)] gap-4 animate-fade-in relative">
+      {/* Top Fixed Section */}
+      <div className="flex-shrink-0 flex flex-col gap-3">
+        {/* Page Title - Increased size slightly */}
+        <div className="mb-2 px-1">
+           <div className="flex justify-between items-start">
+             <div>
+               <h2 className="text-xl md:text-2xl font-bold text-gray-900">기계 관리 현황</h2>
+               <p className="text-sm text-gray-500 mt-1">SWF 자수기 서비스 주기 및 설치 현황을 관리합니다.</p>
+             </div>
+           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Card 1 - Increased padding and font size */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-start justify-between relative overflow-hidden group">
+            <div className="z-10">
+              <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{targetYear}년도 설치현황</p>
+              <div className="flex items-baseline mt-2">
+                 <h3 className="text-4xl font-extrabold text-gray-900 mr-2">{yearInstallations}</h3>
+                 <span className="text-lg font-medium text-gray-500">대</span>
+              </div>
+              <div className="mt-3 flex flex-col gap-1">
+                  <span className="text-sm text-gray-700 font-semibold flex items-center">
+                      이달 설치 현황 및 예정
+                  </span>
+                  <button 
+                    onClick={() => setIsScheduleModalOpen(true)}
+                    className="text-xs text-blue-600 font-medium hover:underline flex items-center w-fit"
+                  >
+                      상세 보기 <ArrowRight size={12} className="ml-1"/>
+                  </button>
+              </div>
+            </div>
+            <div className="p-3 bg-blue-50 rounded-lg text-blue-600 h-fit">
+               <Wrench size={22} />
+            </div>
+          </div>
+
+          {/* Card 2 - Increased padding and font size */}
+          <div 
+            className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-start justify-between cursor-pointer hover:shadow-md transition-shadow group"
+            onClick={() => setIsIntensiveCareModalOpen(true)}
+          >
+            <div>
+              <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">3개월 이내 설치 현황</p>
+              <div className="flex items-baseline mt-2">
+                  <h3 className="text-4xl font-extrabold text-gray-900 mr-2">{recentInstallations}</h3>
+                  <span className="text-lg font-medium text-gray-500">대</span>
+              </div>
+              <span className="text-xs text-indigo-600 font-bold flex items-center mt-3 bg-indigo-50 px-2 py-1 rounded w-fit group-hover:bg-indigo-100 transition-colors">
+                 집중 관리 대상
+              </span>
+            </div>
+            <div className="p-3 bg-indigo-50 rounded-lg text-indigo-600 h-fit group-hover:bg-indigo-100 transition-colors">
+              <Calendar size={22} />
+            </div>
+          </div>
+
+          {/* Card 3 - Increased padding */}
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-3">
+               <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">관리 현황</p>
+               <div className="relative group flex items-center">
+                 <AlertCircle size={20} className="text-gray-400 cursor-help" />
+                 <div className="absolute right-0 top-full mt-2 w-72 p-3 bg-gray-800 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                   <ul className="space-y-1.5 text-left">
+                     <li><span className="font-bold text-red-300">경고 (HIGH):</span> '치명' 1회 이상 또는 '중대' 2회 이상 발생 시</li>
+                     <li><span className="font-bold text-orange-300">주의 (MEDIUM):</span> '중대' 1회 이상 또는 '경미' 3회 이상 발생 시</li>
+                     <li><span className="font-bold text-blue-300">관심 (LOW):</span> '경미' 2회 발생 시</li>
+                     <li><span className="font-bold text-green-300">안정 (NORMAL):</span> 그 외의 경우</li>
+                   </ul>
+                 </div>
+               </div>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-2 text-center h-full items-center">
+              <div 
+                onClick={() => setFilterPriority(filterPriority === Priority.NORMAL ? 'All' : Priority.NORMAL)}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg bg-green-50 h-full cursor-pointer transition-all hover:ring-2 hover:ring-green-200 hover:ring-offset-1 ${filterPriority === Priority.NORMAL ? 'ring-2 ring-green-400 ring-offset-1' : ''}`}
+              >
+                <span className="text-xs text-green-700 font-semibold mb-1">안정</span>
+                <span className="text-xl font-bold text-green-800">{statusCounts.normal}</span>
+              </div>
+              <div 
+                onClick={() => setFilterPriority(filterPriority === Priority.LOW ? 'All' : Priority.LOW)}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg bg-blue-50 h-full cursor-pointer transition-all hover:ring-2 hover:ring-blue-200 hover:ring-offset-1 ${filterPriority === Priority.LOW ? 'ring-2 ring-blue-400 ring-offset-1' : ''}`}
+              >
+                <span className="text-xs text-blue-700 font-semibold mb-1">관심</span>
+                <span className="text-xl font-bold text-blue-800">{statusCounts.interest}</span>
+              </div>
+               <div 
+                onClick={() => setFilterPriority(filterPriority === Priority.MEDIUM ? 'All' : Priority.MEDIUM)}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg bg-orange-50 h-full cursor-pointer transition-all hover:ring-2 hover:ring-orange-200 hover:ring-offset-1 ${filterPriority === Priority.MEDIUM ? 'ring-2 ring-orange-400 ring-offset-1' : ''}`}
+              >
+                <span className="text-xs text-orange-700 font-semibold mb-1">주의</span>
+                <span className="text-xl font-bold text-orange-800">{statusCounts.caution}</span>
+              </div>
+              <div 
+                onClick={() => setFilterPriority(filterPriority === Priority.HIGH ? 'All' : Priority.HIGH)}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg bg-red-50 h-full cursor-pointer transition-all hover:ring-2 hover:ring-red-200 hover:ring-offset-1 ${filterPriority === Priority.HIGH ? 'ring-2 ring-red-400 ring-offset-1' : ''}`}
+              >
+                <span className="text-xs text-red-700 font-semibold mb-1">경고</span>
+                <span className="text-xl font-bold text-red-800">{statusCounts.warning}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Search Bar - Increased padding and height */}
+        <div className="flex flex-col md:flex-row gap-4 md:items-end bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <input 
+              type="text" 
+              placeholder="업체명 또는 기계 시리얼 번호 검색..." 
+              className="w-full h-10 pl-10 pr-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-base"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          
+          <div className="flex flex-col gap-2 w-full md:w-48">
+            {isAdminMode && (
+              <button 
+                onClick={onAddCompany}
+                className="flex items-center justify-center h-10 px-4 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm w-full animate-fade-in"
+              >
+                 <Plus size={16} className="mr-2" />
+                 신규 설치 등록
+              </button>
+            )}
+
+            <div className="relative w-full">
+              <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" size={16} />
+              <select 
+                className="w-full h-10 pl-9 pr-4 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none text-gray-700 text-sm"
+                value={filterPriority}
+                onChange={(e) => setFilterPriority(e.target.value)}
+              >
+                <option value="All">중요도: 전체</option>
+                <option value={Priority.HIGH}>경고 (Warning)</option>
+                <option value={Priority.MEDIUM}>주의 (Caution)</option>
+                <option value={Priority.LOW}>관심 (Interest)</option>
+                <option value={Priority.NORMAL}>안정 (Stable)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Table Section */}
+      <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden min-h-[400px] md:min-h-0">
+        <div className="overflow-x-auto flex-1 overflow-y-auto w-full">
+          <table className="w-full whitespace-nowrap min-w-[800px]">
+            <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
+              <tr>
+                {/* Reduced padding for table header from py-2.5 to py-2 */}
+                <th className="px-4 md:px-6 py-2 text-left text-[11px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider">업체명 (Client)</th>
+                <th className="px-4 md:px-6 py-2 text-left text-[11px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider">보유 모델</th>
+                <th className="px-4 md:px-6 py-2 text-left text-[11px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider">설치일 (Date)</th>
+                <th className="px-4 md:px-6 py-2 text-center text-[11px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider">경과일</th>
+                <th className="px-4 md:px-6 py-2 text-center text-[11px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider">중요도</th>
+                <th className="px-4 md:px-6 py-2 text-center text-[11px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider">상세보기</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {paginatedCompanies.length > 0 ? (
+                paginatedCompanies.map((company) => {
+                  const sortedMachines = [...(company.machines || [])].sort((a, b) => {
+                      return new Date(b.installDate).getTime() - new Date(a.installDate).getTime();
+                  });
+                  
+                  const recentMachines = sortedMachines.filter(m => getElapsedDays(m.installDate) <= 90);
+                  const displayMachine = recentMachines.length > 0 ? recentMachines[0] : sortedMachines[0];
+
+                  return (
+                    <tr 
+                      key={company.id} 
+                      className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                      onClick={() => onSelectCompany(company.id)}
+                    >
+                      {/* Reduced padding for table cells from py-2.5 to py-2 */}
+                      <td className="px-4 md:px-6 py-2">
+                        <div className="flex flex-col">
+                          <span className="text-sm md:text-base font-semibold text-gray-900">{company.name}</span>
+                          <span className="text-[11px] md:text-xs text-gray-500">{company.address ? `${company.address.split(' ')[0]} ${company.address.split(' ')[1] || ''}` : ''}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 md:px-6 py-2">
+                        <div className="flex flex-col">
+                          <span className="text-sm md:text-base text-gray-800 font-medium">{displayMachine ? displayMachine.modelName : '-'}</span>
+                           {company.machines && company.machines.length > 1 && (
+                             <span className="text-[9px] md:text-[10px] font-semibold text-green-700 bg-green-100 px-1.5 md:px-2 py-0.5 rounded border border-green-200 w-fit mt-1">
+                               보유 기종 {company.machines.length}대
+                             </span>
+                           )}
+                        </div>
+                      </td>
+                      <td className="px-4 md:px-6 py-2 text-gray-600 text-xs md:text-sm">
+                        {displayMachine ? displayMachine.installDate : '-'}
+                      </td>
+                      <td className="px-4 md:px-6 py-2 text-center">
+                        <span className={`text-sm md:text-base font-bold ${getElapsedDays(displayMachine?.installDate || '') <= 90 ? 'text-blue-600' : 'text-gray-800'}`}>
+                          {displayMachine ? getElapsedDays(displayMachine.installDate) : 0}
+                        </span>
+                        <span className="text-[11px] md:text-xs text-gray-400 ml-1">일</span>
+                      </td>
+                      <td className="px-4 md:px-6 py-2 text-center">
+                        <span className={`inline-flex items-center px-2 md:px-2.5 py-0.5 rounded-full text-[11px] md:text-xs font-medium border ${getPriorityColor(company.priority || Priority.NORMAL)}`}>
+                          {company.priority || Priority.NORMAL}
+                        </span>
+                      </td>
+                      <td className="px-4 md:px-6 py-2 text-center">
+                          <button className="text-gray-400 hover:text-blue-600 transition-colors group-hover:translate-x-1 duration-200">
+                              <ChevronRight size={16} className="md:w-[18px] md:h-[18px]" />
+                          </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                    <div className="flex flex-col items-center">
+                        <AlertCircle size={40} className="text-gray-300 mb-2" />
+                        <p className="font-medium text-gray-600">검색 결과가 없습니다.</p>
+                        <p className="text-sm text-gray-400 mt-1">최근 90일 이내 설치된 기계가 없거나 검색 조건과 일치하지 않습니다.</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Pagination Footer */}
+        <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 text-sm text-gray-500 flex justify-between items-center flex-shrink-0">
+           <span>전체 {filteredCompanies.length}개 업체 중 {(filteredCompanies.length > 0) ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}-
+           {Math.min(currentPage * ITEMS_PER_PAGE, filteredCompanies.length)} 표시</span>
+           <div className="flex items-center gap-4">
+             <span className="text-gray-600 font-medium">Page {currentPage} / {totalPages || 1}</span>
+             <div className="flex gap-2">
+               <button 
+                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} 
+                 disabled={currentPage === 1}
+                 className="px-3 py-1 border rounded bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+               >
+                 이전
+               </button>
+               <button 
+                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} 
+                 disabled={currentPage === totalPages || totalPages === 0}
+                 className="px-3 py-1 border rounded bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+               >
+                 다음
+               </button>
+             </div>
+           </div>
+        </div>
+      </div>
+
+      <MonthlyScheduleModal 
+        isOpen={isScheduleModalOpen}
+        onClose={() => setIsScheduleModalOpen(false)}
+        schedules={monthlySchedules}
+        targetYear={targetYear}
+        targetMonth={String(new Date().getMonth() + 1)} // Current month roughly
+        isAdminMode={isAdminMode}
+      />
+
+      <IntensiveCareModal 
+        isOpen={isIntensiveCareModalOpen}
+        onClose={() => setIsIntensiveCareModalOpen(false)}
+        companies={companies}
+      />
+    </div>
+  );
+};
+
+const ClientDetail = ({ company, onBack, onUpdateCompany, isAdminMode, monthlySchedules }) => {
+  const { ArrowLeft } = lucideReact;
+  // Modal States
+  const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // Auth popup state
+  const [isEditCompanyModalOpen, setIsEditCompanyModalOpen] = useState(false); // Edit Company Modal
+  const [authPassword, setAuthPassword] = useState(''); // Auth password state
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [viewingImage, setViewingImage] = useState(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0); // For image carousel
+
+  // Filter & Export States
+  const [selectedMachineId, setSelectedMachineId] = useState(null);
+  const [exportSelectedMachineIds, setExportSelectedMachineIds] = useState([]);
+  
+  // Edit & Delete State
+  const [editingServiceId, setEditingServiceId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(null); // Track deletion per item
+  const [serviceToDelete, setServiceToDelete] = useState(null); // ID of service to confirm delete
+  const [machineToDelete, setMachineToDelete] = useState(null); // ID of machine to confirm delete
+
+  // Validation State
+  const [validationErrors, setValidationErrors] = useState({});
+
+  // Form State
+  const [serviceForm, setServiceForm] = useState({
+    machineId: '',
+    // KST 기준으로 오늘 날짜 초기화 (YYYY-MM-DD)
+    date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }),
+    type: ServiceType.AS,
+    issue: '',
+    resolution: '',
+    technician: '',
+    priority: IssueGrade.INQUIRY, 
+  });
+  
+  // Changed to fixed size array for 3 slots: [url|null, url|null, url|null]
+  const [attachedImages, setAttachedImages] = useState([null, null, null]); 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const historySectionRef = useRef(null);
+  const authInputRef = useRef(null);
+
+  useEffect(() => {
+    if (isAuthModalOpen && authInputRef.current) {
+        authInputRef.current.focus();
+    }
+  }, [isAuthModalOpen]);
+
+  const getElapsedDays = (dateStr) => {
+    const start = new Date(dateStr).getTime();
+    const now = new Date().getTime();
+    const diff = now - start;
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case ServiceStatus.RESOLVED: return 'text-green-600 bg-green-50 border-green-100';
+      case ServiceStatus.PENDING: return 'text-orange-600 bg-orange-50 border-orange-100';
+      case ServiceStatus.SCHEDULED: return 'text-blue-600 bg-blue-50 border-blue-100';
+      default: return 'text-gray-600';
+    }
+  };
+
+  const getIssueGradeColor = (grade) => {
+     switch (grade) {
+      case IssueGrade.CRITICAL: return 'text-red-700 bg-red-100 border-red-200';
+      case IssueGrade.MAJOR: return 'text-orange-700 bg-orange-100 border-orange-200';
+      case IssueGrade.MINOR: return 'text-blue-700 bg-blue-100 border-blue-200';
+      case IssueGrade.INQUIRY: return 'text-gray-700 bg-gray-100 border-gray-200';
+      default: return 'text-gray-600 bg-gray-50';
+    }
+  };
+
+  const getServiceTypeBadge = (type) => {
+    if (type === ServiceType.AS) {
+      return <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold border border-red-200 whitespace-nowrap">A/S</span>
+    }
+    // B/S 스타일 변경: 연한 녹색, 텍스트 B/S
+    return <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-bold border border-green-200 whitespace-nowrap">B/S</span>
+  };
+
+  // Helper to parse multiple images
+  const getImages = (urlStr) => {
+      if (!urlStr) return [];
+      return urlStr.split('|||').filter(Boolean);
+  };
+
+  // Helper to resize image
+  const resizeImage = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const MAX_SIZE = 1024; // Resize to max 1024px
+
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6)); // Compress quality to 0.6
+        };
+        img.src = e.target?.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Handlers
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setServiceForm(prev => ({ ...prev, [name]: value }));
+    
+    // Clear validation error for this field if exists
+    if (validationErrors[name]) {
+        setValidationErrors(prev => ({ ...prev, [name]: false }));
+    }
+  };
+
+  const handleFileChange = (index) => async (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const resized = await resizeImage(file);
+        setAttachedImages(prev => {
+          const newImages = [...prev];
+          newImages[index] = resized;
+          return newImages;
+        });
+      } catch (err) {
+        console.error("Image processing error", err);
+        alert("이미지 처리 중 오류가 발생했습니다.");
+      }
+    }
+    // Reset input to allow selecting same file again
+    e.target.value = '';
+  };
+
+  const removeImage = (index) => {
+    setAttachedImages(prev => {
+        const newImages = [...prev];
+        newImages[index] = null;
+        return newImages;
+    });
+  };
+
+  const handleMachineFilter = (machineId) => {
+    if (selectedMachineId === machineId) {
+      setSelectedMachineId(null);
+    } else {
+      setSelectedMachineId(machineId);
+      // Scroll to history section
+      setTimeout(() => {
+        historySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  };
+
+  const filteredHistory = selectedMachineId 
+    ? company.serviceHistory.filter(h => h.machineId === selectedMachineId)
+    : company.serviceHistory;
+
+  // New: Handle + Service Click
+  const handleAddServiceClick = () => {
+    // Reset form for new entry
+    setEditingServiceId(null);
+    setValidationErrors({});
+    setServiceForm({
+        machineId: selectedMachineId || '',
+        date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }),
+        type: ServiceType.AS,
+        issue: '',
+        resolution: '',
+        technician: '',
+        priority: IssueGrade.INQUIRY,
+    });
+    setAttachedImages([null, null, null]); // Reset 3 slots
+
+    if (isAdminMode) {
+        setIsServiceModalOpen(true);
+    } else {
+        setAuthPassword('');
+        setIsAuthModalOpen(true);
+    }
+  };
+
+  const handleEditService = (record) => {
+      setEditingServiceId(record.id);
+      setValidationErrors({});
+      setServiceForm({
+          machineId: record.machineId,
+          date: record.date,
+          type: record.type,
+          issue: record.issue,
+          resolution: record.resolution || '',
+          technician: record.technician,
+          priority: record.priority || IssueGrade.INQUIRY,
+      });
+      
+      // Parse existing images and fill slots
+      const images = getImages(record.attachmentUrl || '');
+      const paddedImages = [null, null, null];
+      images.forEach((img, i) => {
+          if (i < 3) paddedImages[i] = img;
+      });
+      setAttachedImages(paddedImages);
+
+      setIsServiceModalOpen(true);
+  };
+
+  const handleAuthSubmit = (e) => {
+    e.preventDefault();
+    if (authPassword === '202603') {
+        setIsAuthModalOpen(false);
+        setIsServiceModalOpen(true);
+    } else {
+        alert('비밀번호가 올바르지 않습니다.');
+    }
+  };
+
+  const handleSubmitService = async (e) => {
+    e.preventDefault();
+
+    // Validation
+    const errors = {};
+    if (!serviceForm.machineId) errors.machineId = true;
+    if (!serviceForm.date) errors.date = true;
+    if (!serviceForm.technician) errors.technician = true;
+    if (!serviceForm.issue) errors.issue = true;
+
+    if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        alert('필수 입력 항목을 확인해주세요. (붉은색 테두리)');
+        return;
+    }
+
+    const selectedMachine = company.machines.find(m => m.id === serviceForm.machineId);
+    if (!selectedMachine) {
+        alert("선택된 기계 정보를 찾을 수 없습니다.");
+        return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Join multiple images with a separator, filtering out nulls
+      const combinedPhotos = attachedImages.filter(Boolean).join('|||');
+      
+      const basePayload = {
+        date: serviceForm.date,
+        type: serviceForm.type,
+        issue: serviceForm.issue,
+        resolution: serviceForm.resolution,
+        technician: serviceForm.technician,
+        priority: serviceForm.priority,
+        photo: combinedPhotos
+      };
+
+      let success = false;
+
+      if (editingServiceId) {
+          // Update Mode
+          success = await updateServiceInSheet({
+              id: editingServiceId,
+              ...basePayload
+          });
+          
+          if (success) {
+            alert("서비스 기록이 수정되었습니다.");
+            const newHistory = company.serviceHistory.map(rec => {
+                if (rec.id === editingServiceId) {
+                    return {
+                        ...rec,
+                        ...basePayload,
+                        machineId: serviceForm.machineId,
+                        machineModel: selectedMachine.modelName,
+                        attachmentUrl: combinedPhotos || undefined
+                    };
+                }
+                return rec;
+            });
+            const updatedCompany = { ...company, serviceHistory: newHistory };
+            onUpdateCompany(updatedCompany);
+          }
+      } else {
+          // Create Mode
+          const newId = `svc-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          
+          success = await saveServiceToSheet({
+            id: newId, 
+            company: company.name,
+            model: selectedMachine.modelName,
+            serial: selectedMachine.serialNumber,
+            ...basePayload
+          });
+
+          if (success) {
+              const newRecord = {
+                id: newId,
+                ...basePayload,
+                machineId: serviceForm.machineId,
+                machineModel: selectedMachine.modelName,
+                status: ServiceStatus.RESOLVED,
+                attachmentUrl: combinedPhotos || undefined
+            };
+            const newHistory = [newRecord, ...company.serviceHistory];
+            const updatedCompany = { ...company, serviceHistory: newHistory };
+            onUpdateCompany(updatedCompany);
+          }
+      }
+
+      if (success) {
+         setEditingServiceId(null);
+         setValidationErrors({});
+         setServiceForm({
+            machineId: '',
+            date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' }),
+            type: ServiceType.AS,
+            issue: '',
+            resolution: '',
+            technician: '',
+            priority: IssueGrade.INQUIRY,
+         });
+         setAttachedImages([null, null, null]);
+         setIsServiceModalOpen(false);
+      } else {
+        alert("처리에 실패했습니다. 스프레드시트 네트워크 상태를 확인하거나 ID가 유효한지 확인해주세요.");
+      }
+    } catch (error) {
+       console.error(error);
+       alert("오류가 발생했습니다.");
+    } finally {
+        setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteClick = (serviceId) => {
+    setServiceToDelete(serviceId);
+  };
+
+  const confirmDelete = async () => {
+    if (!serviceToDelete) return;
+    
+    setIsDeleting(serviceToDelete);
+    try {
+        const success = await deleteServiceFromSheet(serviceToDelete);
+        
+        if (success) {
+            // UI Update
+            const updatedHistory = company.serviceHistory.filter(s => s.id !== serviceToDelete);
+            const updatedCompany = { ...company, serviceHistory: updatedHistory };
+            onUpdateCompany(updatedCompany);
+            alert('삭제되었습니다.');
+            setIsServiceModalOpen(false); // Close modal if open
+            setServiceToDelete(null);
+        } else {
+            alert("삭제에 실패했습니다. 해당 ID를 찾을 수 없거나 네트워크 오류입니다.");
+        }
+    } catch (error) {
+        console.error("Delete failed", error);
+        alert("삭제 처리 중 오류가 발생했습니다.");
+    } finally {
+        setIsDeleting(null);
+    }
+  };
+
+  const confirmDeleteMachine = async () => {
+    if (!machineToDelete) return;
+
+    setIsDeleting(machineToDelete);
+    try {
+      const success = await deleteMachineFromSheet(machineToDelete);
+      
+      if (success) {
+        // UI Update
+        const updatedMachines = company.machines.filter(m => m.id !== machineToDelete);
+        const updatedCompany = { ...company, machines: updatedMachines };
+        
+        // If the deleted machine was selected, clear the selection
+        if (selectedMachineId === machineToDelete) {
+          setSelectedMachineId(null);
+        }
+        
+        onUpdateCompany(updatedCompany);
+        alert('기계가 삭제되었습니다.');
+        setMachineToDelete(null);
+      } else {
+        alert("삭제에 실패했습니다. 해당 ID를 찾을 수 없거나 네트워크 오류입니다.");
+      }
+    } catch (error) {
+      console.error("Error deleting machine:", error);
+      alert("기계 삭제 중 오류가 발생했습니다.");
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
+  // Export Logic
+  const openExportModal = () => {
+    setExportSelectedMachineIds(company.machines.map(m => m.id)); // Default select all
+    setIsExportModalOpen(true);
+  };
+
+  const toggleExportSelection = (id) => {
+    setExportSelectedMachineIds(prev => 
+      prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]
+    );
+  };
+
+  const toggleExportAll = () => {
+    if (exportSelectedMachineIds.length === company.machines.length) {
+      setExportSelectedMachineIds([]);
+    } else {
+      setExportSelectedMachineIds(company.machines.map(m => m.id));
+    }
+  };
+
+  const handleExportCSV = () => {
+    const recordsToExport = company.serviceHistory.filter(r => 
+      exportSelectedMachineIds.includes(r.machineId)
+    );
+
+    if (recordsToExport.length === 0) {
+      alert('선택한 기계의 서비스 이력이 없습니다.');
+      return;
+    }
+
+    // CSV Header
+    let csvContent = '\uFEFF'; // BOM for Excel Korean support
+    csvContent += "Date,Type,Machine Model,Serial Number,Technician,Grade,Issue,Resolution\n";
+
+    recordsToExport.forEach(record => {
+      const machine = company.machines.find(m => m.id === record.machineId);
+      const row = [
+        record.date,
+        record.type,
+        `"${record.machineModel.replace(/"/g, '""')}"`,
+        `"${machine?.serialNumber || ''}"`,
+        `"${record.technician}"`,
+        record.priority || '',
+        `"${record.issue.replace(/"/g, '""').replace(/\n/g, ' ')}"`,
+        `"${(record.resolution || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`
+      ].join(",");
+      csvContent += row + "\n";
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${company.name.replace(/ /g, '_')}_Service_History.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+    setIsExportModalOpen(false);
+  };
+
+  const handleUpdateCompany = async (updatedData) => {
+    const success = await updateCompanyInSheet(updatedData);
+    if (success) {
+      // Update local state
+      const updatedCompany = {
+        ...company,
+        name: updatedData.name,
+        representative: updatedData.representative,
+        contactPhone: updatedData.contactPhone,
+        contactPhone2: updatedData.contactPhone2,
+        address: updatedData.address,
+        contactEmail: updatedData.contactEmail,
+        note: updatedData.note
+      };
+      onUpdateCompany(updatedCompany);
+      alert('업체 정보가 수정되었습니다.');
+    } else {
+      alert('업체 정보 수정에 실패했습니다.');
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full md:h-[calc(100vh-9rem)] gap-4 animate-fade-in-up relative">
+      {/* 
+        LAYOUT CHANGE:
+        1. Fixed Top Section (Navigation, Compact Company Info, Compact Machines)
+        2. Scrollable Bottom Section (History)
+      */}
+
+      {/* --- Fixed Top Section --- */}
+      <div className="flex-shrink-0 space-y-3 z-10">
+        {/* Navigation */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <button 
+            onClick={onBack}
+            className="flex items-center text-gray-600 hover:text-blue-600 transition-colors font-medium text-sm"
+          >
+            <ArrowLeft size={18} className="mr-1.5" />
+            목록으로 돌아가기
+          </button>
+          <div className="flex gap-2 w-full sm:w-auto">
+             <button 
+               onClick={openExportModal}
+               className="flex-1 sm:flex-none flex items-center justify-center px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-sm whitespace-nowrap"
+             >
+               <Printer size={14} className="mr-1.5"/> <span>출력하기</span>
+             </button>
+             {isAdminMode && (
+               <button 
+                 onClick={handleAddServiceClick}
+                 className="flex-1 sm:flex-none flex items-center justify-center px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-200 whitespace-nowrap"
+               >
+                 <Plus size={14} className="mr-1.5"/> 서비스 <span className="hidden xs:inline">추가</span>
+               </button>
+             )}
+          </div>
+        </div>
+
+        {/* Company Info Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6">
+          <div className="flex items-start gap-4 md:gap-5">
+            <div className="w-14 h-14 md:w-20 md:h-20 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 flex-shrink-0">
+              <Building2 size={24} className="md:w-8 md:h-8" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                 <h2 className="text-lg md:text-2xl font-bold text-gray-900 leading-tight">{company.name}</h2>
+                 <span className={`px-2 py-0.5 rounded-full text-[10px] md:text-xs font-bold border whitespace-nowrap ${
+                   company.priority === Priority.HIGH ? 'bg-red-100 text-red-700 border-red-200' : 
+                   company.priority === Priority.MEDIUM ? 'bg-orange-100 text-orange-700 border-orange-200' : 
+                   company.priority === Priority.NORMAL ? 'bg-green-100 text-green-700 border-green-200' :
+                   'bg-blue-100 text-blue-700 border-blue-200'
+                 }`}>
+                   {company.priority}
+                 </span>
+              </div>
+              
+              <div className="mt-2 md:mt-4 grid grid-cols-1 md:grid-cols-2 gap-y-1 md:gap-y-2 gap-x-8 text-sm text-gray-600">
+                <div className="flex items-center gap-2 truncate">
+                  <User size={14} className="text-gray-400 flex-shrink-0" />
+                  <span className="font-medium text-gray-900">대표:</span> {company.representative || '-'}
+                </div>
+                <div className="flex items-center gap-2 truncate">
+                  <Phone size={14} className="text-gray-400 flex-shrink-0" />
+                  <span className="font-medium text-gray-900">연락처:</span> 
+                  <span>{company.contactPhone}</span>
+                  {company.contactPhone2 && <span className="text-gray-500 text-xs">/ {company.contactPhone2}</span>}
+                </div>
+                <div className="flex items-center gap-2 truncate col-span-1 md:col-span-2">
+                  <MapPin size={14} className="text-gray-400 flex-shrink-0" />
+                  <span className="font-medium text-gray-900">주소:</span> {company.address}
+                </div>
+                {company.note && (
+                  <div className="flex items-start gap-2 col-span-1 md:col-span-2 mt-1 bg-gray-50 p-2 rounded text-xs text-gray-600">
+                    <span className="font-bold text-gray-700 flex-shrink-0">비고:</span>
+                    <p className="whitespace-pre-wrap">{company.note}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {isAdminMode && (
+              <button 
+                onClick={() => setIsEditCompanyModalOpen(true)}
+                className="text-gray-400 hover:text-blue-600 p-1 rounded-full hover:bg-blue-50 transition-colors"
+                title="업체 정보 수정"
+              >
+                <Edit2 size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Owned Machines Section - Compact Horizontal Scroll */}
+        <div>
+          <div className="flex items-center justify-between mb-2 px-1">
+             <h3 className="text-sm font-bold text-gray-900">보유 기계 <span className="text-gray-500 font-normal text-xs ml-1">{company.machines.length}대</span></h3>
+          </div>
+          <div className="flex overflow-x-auto gap-3 pb-2 -mx-1 px-1 scrollbar-hide">
+            {company.machines.map(machine => {
+              const dInstall = new Date(machine.installDate);
+              let isWarrantyActive = false;
+              if (!isNaN(dInstall.getTime())) {
+                  const dNow = new Date();
+                  dInstall.setHours(0,0,0,0);
+                  dNow.setHours(0,0,0,0);
+                  const elapsedDays = Math.floor((dNow.getTime() - dInstall.getTime()) / (1000 * 60 * 60 * 24));
+                  isWarrantyActive = elapsedDays < 365;
+              }
+
+              return (
+              <div key={machine.id} className={`flex-shrink-0 w-64 bg-white rounded-lg shadow-sm border transition-all ${selectedMachineId === machine.id ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/10' : 'border-gray-100 hover:border-blue-200'}`}>
+                 <div className="p-3">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2 truncate mr-2">
+                      <h4 className="font-bold text-sm text-gray-900 truncate" title={machine.modelName}>{machine.modelName}</h4>
+                      {isAdminMode && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMachineToDelete(machine.id);
+                          }}
+                          className="px-1.5 py-0.5 bg-red-50 text-red-600 border border-red-200 rounded text-[10px] font-bold hover:bg-red-100 transition-colors flex-shrink-0"
+                          title="기계 삭제"
+                        >
+                          DEL
+                        </button>
+                      )}
+                    </div>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap flex-shrink-0 ${isWarrantyActive ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                        {isWarrantyActive ? 'Warranty' : 'Warranty Expired'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5 text-xs text-gray-500 mb-3">
+                    <div className="flex justify-between">
+                      <span>S/N:</span> 
+                      <span className="font-mono text-gray-700">{machine.serialNumber}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>설치일:</span> 
+                      <span>{machine.installDate}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                      <div className="flex items-baseline">
+                          <span className="text-lg font-bold text-blue-600">{getElapsedDays(machine.installDate)}</span>
+                          <span className="ml-0.5 text-xs text-gray-500">일째</span>
+                      </div>
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={(e) => { 
+                              e.stopPropagation(); 
+                              // Check Monthly Schedule first
+                              const schedule = monthlySchedules?.find(s => s.serial === machine.serialNumber && s.photo);
+                              const photoUrl = schedule?.photo || (machine.imageUrl && !machine.imageUrl.includes('placeholder') ? machine.imageUrl : null);
+                              
+                              if (photoUrl) {
+                                  setViewingImage(photoUrl); 
+                                  setCurrentImageIndex(0); 
+                              } else {
+                                  alert("등록된 설치 사진이 없습니다.");
+                              }
+                          }}
+                          className="flex items-center px-2 py-1 text-[10px] font-semibold rounded transition-colors bg-white text-gray-600 border border-gray-200 hover:border-blue-300 hover:text-blue-600"
+                          title="설치 사진 보기"
+                        >
+                          <ImageIcon size={12} className="mr-1"/>
+                          사진
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleMachineFilter(machine.id); }}
+                          className={`flex items-center px-2 py-1 text-[10px] font-semibold rounded transition-colors border ${selectedMachineId === machine.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-600'}`}
+                        >
+                          <ListFilter size={12} className="mr-1"/>
+                          이력
+                        </button>
+                      </div>
+                  </div>
+                </div>
+              </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* --- Scrollable Bottom Section --- */}
+      <div className="flex-1 md:overflow-y-auto min-h-0 md:pr-2 pb-4">
+        {/* Service History Section */}
+        <div ref={historySectionRef} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5 transition-all duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
+            <div className="flex flex-col">
+              <h3 className="text-base font-bold text-gray-900 flex items-center">
+                서비스 이력
+                {selectedMachineId && (
+                  <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full flex items-center">
+                    <Filter size={10} className="mr-1"/>
+                    {company.machines.find(m => m.id === selectedMachineId)?.modelName}
+                    <button onClick={() => setSelectedMachineId(null)} className="ml-2 hover:text-blue-800"><X size={12}/></button>
+                  </span>
+                )}
+              </h3>
+            </div>
+            <div className="flex gap-3 text-xs">
+               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500"></span><span className="text-gray-600 font-medium">A/S</span></div>
+               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-gray-600 font-medium">B/S</span></div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wider">
+                  <th className="py-2 pr-4 font-medium w-24">Date</th>
+                  <th className="py-2 px-4 font-medium w-16">Type</th>
+                  <th className="py-2 px-4 font-medium w-1/5">Machine</th>
+                  <th className="py-2 px-4 font-medium min-w-[200px]">Issue & Resolution</th>
+                  <th className="py-2 px-4 font-medium w-24">Technician</th>
+                  <th className="py-2 px-4 font-medium text-center w-20">Grade</th>
+                  <th className="py-2 px-4 font-medium text-center w-12">Ref</th>
+                  {isAdminMode && <th className="py-2 px-4 font-medium text-center w-20 bg-blue-50/50">관리</th>}
+                </tr>
+              </thead>
+              <tbody className="text-sm divide-y divide-gray-100">
+                {filteredHistory.length > 0 ? (
+                  filteredHistory.map(record => (
+                    <tr key={record.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="py-3 pr-4 text-gray-900 font-semibold whitespace-nowrap align-top text-xs">{record.date}</td>
+                      <td className="py-3 px-4 align-top">{getServiceTypeBadge(record.type)}</td>
+                      <td className="py-3 px-4 text-gray-600 align-top">
+                        <span className="block font-medium text-gray-800 truncate max-w-[150px] text-xs" title={record.machineModel}>{record.machineModel}</span>
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        <p className="font-medium text-gray-900 mb-1 leading-snug text-xs">{record.issue}</p>
+                        {record.resolution && <p className="text-gray-500 text-[11px] bg-gray-50 p-1.5 rounded border border-gray-100 leading-snug">{record.resolution}</p>}
+                      </td>
+                      <td className="py-3 px-4 text-gray-700 align-top whitespace-nowrap text-xs">
+                        {record.technician}
+                      </td>
+                      <td className="py-3 px-4 text-center align-top">
+                        {record.priority && (
+                           <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${getIssueGradeColor(record.priority)}`}>
+                             {record.priority}
+                           </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center align-top">
+                        {record.attachmentUrl && (
+                          <button 
+                            onClick={() => { setViewingImage(record.attachmentUrl); setCurrentImageIndex(0); }}
+                            className="text-gray-400 hover:text-blue-600 transition-colors p-1 hover:bg-blue-50 rounded relative group"
+                            title="View Attachment"
+                          >
+                            <Paperclip size={14} />
+                            {getImages(record.attachmentUrl).length > 1 && (
+                              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white"></span>
+                            )}
+                          </button>
+                        )}
+                      </td>
+                      {isAdminMode && (
+                          <td className="py-3 px-4 text-center align-top relative z-10">
+                             <div className="flex items-center justify-center gap-1">
+                                  <button 
+                                      type="button"
+                                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-50"
+                                      onClick={(e) => { e.stopPropagation(); handleEditService(record); }}
+                                      title="수정"
+                                      disabled={isDeleting === record.id}
+                                  >
+                                      <Edit2 size={14} />
+                                  </button>
+                             </div>
+                          </td>
+                      )}
+                    </tr>
+                  ))
+                ) : (
+                   <tr>
+                    <td colSpan={isAdminMode ? 8 : 7} className="py-8 text-center text-gray-500 text-xs">
+                      {selectedMachineId ? '선택된 기계의 서비스 이력이 없습니다.' : '이력이 존재하지 않습니다.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Auth Modal & Other Modals remain same ... */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center"><Lock size={18} className="mr-2 text-blue-600"/>인증 필요</h3>
+              <button onClick={() => setIsAuthModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleAuthSubmit} className="p-6">
+               <p className="text-sm text-gray-600 mb-4">서비스 기록을 추가하려면 관리자 권한이 필요합니다.</p>
+               <div className="mb-4">
+                 <label className="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
+                 <input 
+                    ref={authInputRef}
+                    type="password" 
+                    value={authPassword} 
+                    onChange={(e) => setAuthPassword(e.target.value)} 
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                    placeholder="관리자 비밀번호 입력"
+                    autoFocus 
+                  />
+               </div>
+               <button type="submit" className="w-full px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700">인증 확인</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Service Record Modal */}
+      {isServiceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in-up flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
+                <Wrench size={18} className="mr-2 text-blue-600"/>
+                {editingServiceId ? '서비스 기록 수정' : '서비스 기록 추가'}
+              </h3>
+              <button 
+                onClick={() => setIsServiceModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmitService} className="flex-1 overflow-y-auto p-6 space-y-4">
+               {/* Row 1: Machine & Date */}
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">대상 기종 선택 <span className="text-red-500">*</span></label>
+                   <select 
+                     name="machineId"
+                     value={serviceForm.machineId}
+                     onChange={handleInputChange}
+                     className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${validationErrors.machineId ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-200 focus:ring-blue-500'}`}
+                   >
+                     <option value="">기종을 선택하세요</option>
+                     {company.machines.map(m => (
+                       <option key={m.id} value={m.id}>{m.modelName} ({m.serialNumber})</option>
+                     ))}
+                   </select>
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">서비스 일자 <span className="text-red-500">*</span></label>
+                   <input 
+                      type="date"
+                      name="date"
+                      value={serviceForm.date}
+                      onChange={handleInputChange}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${validationErrors.date ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-200 focus:ring-blue-500'}`}
+                   />
+                 </div>
+               </div>
+
+               {/* Row 2: Type, Grade */}
+               <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">서비스 구분</label>
+                    <select 
+                      name="type"
+                      value={serviceForm.type}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value={ServiceType.AS}>A/S</option>
+                      <option value={ServiceType.BS}>B/S</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">등급</label>
+                    <select 
+                      name="priority"
+                      value={serviceForm.priority}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value={IssueGrade.INQUIRY}>문의 (Inquiry)</option>
+                      <option value={IssueGrade.MINOR}>경미 (Minor)</option>
+                      <option value={IssueGrade.MAJOR}>중대 (Major)</option>
+                      <option value={IssueGrade.CRITICAL}>치명 (Critical)</option>
+                    </select>
+                  </div>
+               </div>
+
+               {/* Row 3: Technician */}
+               <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">담당자 (Technician) <span className="text-red-500">*</span></label>
+                  <input 
+                    type="text"
+                    name="technician"
+                    value={serviceForm.technician}
+                    onChange={handleInputChange}
+                    placeholder="담당자 이름"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${validationErrors.technician ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-200 focus:ring-blue-500'}`}
+                  />
+               </div>
+
+               {/* Issue & Resolution */}
+               <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">문제점 및 요청 사항 <span className="text-red-500">*</span></label>
+                  <textarea 
+                    name="issue"
+                    value={serviceForm.issue}
+                    onChange={handleInputChange}
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 h-20 resize-none ${validationErrors.issue ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-200 focus:ring-blue-500'}`}
+                    placeholder="발생한 문제 또는 요청 사항을 자세히 기록하세요."
+                  />
+               </div>
+               <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">조치 사항 (Resolution)</label>
+                  <textarea 
+                    name="resolution"
+                    value={serviceForm.resolution}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-none"
+                    placeholder="조치한 내용이나 향후 계획을 기록하세요."
+                  />
+               </div>
+
+               {/* File Upload - Multi Image (Card Style) */}
+               <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">사진 첨부 (최대 3장)</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[0, 1, 2].map((index) => (
+                      <div key={index} className="relative aspect-square">
+                        {attachedImages[index] ? (
+                          <div className="w-full h-full relative rounded-lg overflow-hidden border border-gray-200 group bg-gray-50">
+                            <img 
+                              src={attachedImages[index]} 
+                              alt={`Service Upload ${index + 1}`} 
+                              className="w-full h-full object-cover" 
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeImage(index)}
+                              className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className={`w-full h-full border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                             <Upload size={20} className="text-gray-400 mb-1" />
+                             <span className="text-xs text-gray-500 font-medium">추가</span>
+                             <input 
+                               type="file" 
+                               className="hidden" 
+                               accept="image/*"
+                               onChange={handleFileChange(index)}
+                               disabled={isSubmitting}
+                             />
+                          </label>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+            </form>
+
+            <div className="p-4 border-t border-gray-100 flex gap-3 bg-gray-50">
+              <button 
+                type="button" 
+                onClick={() => setIsServiceModalOpen(false)}
+                className="flex-1 px-4 py-2 text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors font-medium shadow-sm"
+                disabled={isSubmitting}
+              >
+                취소
+              </button>
+              <button 
+                onClick={handleSubmitService}
+                className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm flex items-center justify-center"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                    <>
+                        <Loader2 size={18} className="animate-spin mr-2"/>
+                        저장 중...
+                    </>
+                ) : (editingServiceId ? '수정 완료' : '저장하기')}
+              </button>
+
+              {editingServiceId && (
+                <button 
+                  type="button"
+                  onClick={() => handleDeleteClick(editingServiceId)}
+                  className="flex-1 px-4 py-2 text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors font-medium shadow-sm flex items-center justify-center whitespace-nowrap"
+                  disabled={isSubmitting || (isDeleting === editingServiceId)}
+                >
+                  {isDeleting === editingServiceId ? <Loader2 size={18} className="animate-spin"/> : '이 기록 삭제'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {serviceToDelete && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up p-6 text-center">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                  <AlertTriangle size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">정말 삭제하시겠습니까?</h3>
+              <p className="text-sm text-gray-500 mb-6">삭제된 데이터는 복구할 수 없습니다.</p>
+              <div className="flex gap-3">
+                  <button 
+                      onClick={() => setServiceToDelete(null)}
+                      className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 font-medium"
+                  >
+                      취소
+                  </button>
+                  <button 
+                      onClick={confirmDelete}
+                      className="flex-1 px-4 py-2 text-white bg-red-600 rounded-lg hover:bg-red-700 font-medium"
+                      disabled={!!isDeleting}
+                  >
+                      {isDeleting ? <Loader2 size={18} className="animate-spin mx-auto"/> : 'YES'} 
+                  </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Machine Delete Confirmation Modal */}
+      {machineToDelete && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up p-6 text-center">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                  <AlertTriangle size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">기계를 삭제하시겠습니까?</h3>
+              <p className="text-sm text-gray-500 mb-6">이 기계와 관련된 모든 서비스 기록도 함께 삭제될 수 있습니다. 정말 삭제하시겠습니까?</p>
+              <div className="flex gap-3">
+                  <button 
+                      onClick={() => setMachineToDelete(null)}
+                      className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 font-medium"
+                  >
+                      취소
+                  </button>
+                  <button 
+                      onClick={confirmDeleteMachine}
+                      className="flex-1 px-4 py-2 text-white bg-red-600 rounded-lg hover:bg-red-700 font-medium"
+                      disabled={!!isDeleting}
+                  >
+                      {isDeleting ? <Loader2 size={18} className="animate-spin mx-auto"/> : '삭제'} 
+                  </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Export Modal */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
+                <FileSpreadsheet size={18} className="mr-2 text-green-600"/>
+                서비스 이력 출력
+              </h3>
+              <button onClick={() => setIsExportModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-4">출력할 기계를 선택하세요. 선택된 기계의 모든 서비스 이력이 CSV 파일로 저장됩니다.</p>
+              
+              <div className="mb-4 flex items-center justify-between">
+                <span className="text-sm font-semibold text-gray-700">기계 목록 ({company.machines.length})</span>
+                <button 
+                  onClick={toggleExportAll} 
+                  className="text-xs text-blue-600 font-medium hover:underline"
+                >
+                  {exportSelectedMachineIds.length === company.machines.length ? '선택 해제' : '전체 선택'}
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto mb-6 border border-gray-100 rounded-lg p-2 bg-gray-50">
+                {company.machines.map(machine => (
+                  <label key={machine.id} className="flex items-center p-2 rounded hover:bg-white cursor-pointer transition-colors border border-transparent hover:border-gray-200">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                      checked={exportSelectedMachineIds.includes(machine.id)}
+                      onChange={() => toggleExportSelection(machine.id)}
+                    />
+                    <div className="ml-3 flex-1">
+                      <p className="text-sm font-medium text-gray-900">{machine.modelName}</p>
+                      <p className="text-xs text-gray-500">S/N: {machine.serialNumber}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={handleExportCSV}
+                  className="flex-1 flex items-center justify-center px-4 py-2 text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors font-medium shadow-sm"
+                  disabled={exportSelectedMachineIds.length === 0}
+                >
+                  <Download size={16} className="mr-2"/>
+                  내보내기 (CSV)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal (Handles Multiple Images with Pagination) */}
+      {viewingImage && (
+        <div 
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-fade-in p-4"
+          onClick={() => { setViewingImage(null); setCurrentImageIndex(0); }}
+        >
+          <div className="relative max-w-5xl w-full h-full max-h-[90vh] flex flex-col items-center justify-center" onClick={e => e.stopPropagation()}>
+             <button 
+               onClick={() => { setViewingImage(null); setCurrentImageIndex(0); }}
+               className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors z-50 p-2 bg-black/20 rounded-full hover:bg-black/40"
+             >
+               <X size={24} />
+             </button>
+             
+             {(() => {
+                 const images = getImages(viewingImage);
+                 const total = images.length;
+                 // Ensure index is valid
+                 const safeIndex = currentImageIndex >= total ? 0 : currentImageIndex;
+                 
+                 return (
+                     <div className="relative w-full h-full flex items-center justify-center">
+                         {total > 1 && (
+                             <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCurrentImageIndex(prev => (prev - 1 + total) % total);
+                                }}
+                                className="absolute left-2 md:left-4 z-40 p-2 text-white/70 hover:text-white bg-black/20 hover:bg-black/50 rounded-full transition-all"
+                             >
+                                 <ChevronLeft size={32} />
+                             </button>
+                         )}
+                         
+                         <img 
+                            src={images[safeIndex]} 
+                            alt={`Attachment ${safeIndex + 1}`} 
+                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                         />
+                         
+                         {total > 1 && (
+                             <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCurrentImageIndex(prev => (prev + 1) % total);
+                                }}
+                                className="absolute right-2 md:right-4 z-40 p-2 text-white/70 hover:text-white bg-black/20 hover:bg-black/50 rounded-full transition-all"
+                             >
+                                 <ChevronRight size={32} />
+                             </button>
+                         )}
+                         
+                         {total > 1 && (
+                             <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-40">
+                                 {images.map((_, idx) => (
+                                     <button
+                                        key={idx}
+                                        onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(idx); }}
+                                        className={`w-2 h-2 rounded-full transition-all ${idx === safeIndex ? 'bg-white w-4' : 'bg-white/40 hover:bg-white/60'}`}
+                                     />
+                                 ))}
+                             </div>
+                         )}
+                     </div>
+                 );
+             })()}
+          </div>
+        </div>
+      )}
+      {/* Edit Company Modal */}
+      <EditCompanyModal 
+        isOpen={isEditCompanyModalOpen}
+        onClose={() => setIsEditCompanyModalOpen(false)}
+        company={company}
+        onSave={handleUpdateCompany}
+        isAdminMode={isAdminMode}
+      />
+    </div>
+  );
+};
+
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedCompany, setSelectedCompany] = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authPassword, setAuthPassword] = useState('');
+  const [isNewInstallModalOpen, setIsNewInstallModalOpen] = useState(false);
+  const [monthlySchedules, setMonthlySchedules] = useState([]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await fetchCompaniesFromSheet();
+      setCompanies(data);
+      
+      // Extract monthly schedules from companies
+      const schedules = [];
+      data.forEach(comp => {
+         comp.machines.forEach(machine => {
+             // Assuming machine has installDate, we can calculate next schedule
+             // For now, let's use a mock or derived schedule if not present
+             // In a real app, this might come from a separate sheet or be part of machine data
+             // Here we just push a placeholder if needed, or rely on what fetchCompaniesFromSheet returns
+             // The current fetchCompaniesFromSheet implementation might not return full schedules structure
+             // Let's assume it returns what we need or we adapt.
+             
+             // Actually, looking at types, MonthlySchedule is separate.
+             // But for this single file, let's assume data is sufficient.
+         });
+      });
+      // For demo/mock purposes in GAS, we might want to generate some schedules if empty
+      // But let's stick to the fetched data.
+      
+    } catch (err) {
+      console.error(err);
+      setError('데이터를 불러오는데 실패했습니다.');
+      // Fallback to MOCK_DATA if fetch fails (e.g. network error in dev)
+      // setCompanies(MOCK_DATA); 
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCompanyClick = (company) => {
+    setSelectedCompany(company);
+    setActiveTab('detail');
+  };
+
+  const handleBackToDashboard = () => {
+    setSelectedCompany(null);
+    setActiveTab('dashboard');
+  };
+
+  const handleUpdateCompany = (updatedCompany) => {
+    setCompanies(prev => prev.map(c => c.id === updatedCompany.id ? updatedCompany : c));
+    if (selectedCompany && selectedCompany.id === updatedCompany.id) {
+      setSelectedCompany(updatedCompany);
+    }
+  };
+
+  const handleAdminAuth = (e) => {
+    e.preventDefault();
+    if (authPassword === '202603') {
+      setIsAdminMode(true);
+      setIsAuthModalOpen(false);
+      setAuthPassword('');
+    } else {
+      alert('비밀번호가 올바르지 않습니다.');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAdminMode(false);
+  };
+
+  const handleSaveNewInstallation = async (formData) => {
+    const success = await saveInstallationToSheet(formData);
+    if (success) {
+      alert('신규 설치 건이 등록되었습니다.');
+      setIsNewInstallModalOpen(false);
+      loadData(); // Reload data
+    } else {
+      alert('등록에 실패했습니다.');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={handleBackToDashboard}>
+            <div className="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm shadow-blue-200">
+               <Cloud size={20} className="stroke-[2.5px]" />
+            </div>
+            <h1 className="text-lg font-bold text-gray-900 tracking-tight">
+              Service<span className="text-blue-600">Manager</span>
+            </h1>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={loadData} 
+              className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
+              title="새로고침"
+            >
+              <RefreshCw size={18} className={isLoading ? 'animate-spin text-blue-600' : ''} />
+            </button>
+
+            <div className="h-4 w-px bg-gray-200 mx-1"></div>
+
+            {isAdminMode ? (
+              <div className="flex items-center gap-3 animate-fade-in">
+                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full border border-blue-100 flex items-center">
+                  <Lock size={10} className="mr-1"/> 관리자 모드
+                </span>
+                <button 
+                  onClick={handleLogout}
+                  className="text-xs font-medium text-gray-500 hover:text-gray-700 underline decoration-gray-300 underline-offset-2"
+                >
+                  나가기
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => setIsAuthModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
+              >
+                <Lock size={12} />
+                <span>관리자</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center shadow-sm animate-fade-in">
+            <AlertCircle size={20} className="mr-2 flex-shrink-0" />
+            <span className="text-sm font-medium">{error}</span>
+            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600"><X size={16}/></button>
+          </div>
+        )}
+
+        {isLoading && !companies.length ? (
+          <div className="flex flex-col items-center justify-center h-[60vh] animate-pulse">
+            <div className="relative">
+                <div className="w-16 h-16 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <Cloud size={20} className="text-blue-600" />
+                </div>
+            </div>
+            <p className="mt-4 text-gray-500 font-medium text-sm">데이터를 불러오는 중입니다...</p>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'dashboard' && (
+              <div className="animate-fade-in">
+                 <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900">대시보드</h2>
+                        <p className="text-sm text-gray-500 mt-1">전체 현황을 한눈에 확인하세요.</p>
+                    </div>
+                    <div className="flex gap-2">
+                        {isAdminMode && (
+                            <button 
+                                onClick={() => setIsNewInstallModalOpen(true)}
+                                className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all transform hover:-translate-y-0.5 font-medium text-sm"
+                            >
+                                <Plus size={16} className="mr-1.5" />
+                                신규 설치 등록
+                            </button>
+                        )}
+                        <button 
+                            onClick={() => setActiveTab('statistics')}
+                            className="flex items-center justify-center px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-blue-300 hover:text-blue-600 shadow-sm transition-all font-medium text-sm"
+                        >
+                            <BarChart2 size={16} className="mr-1.5" />
+                            통계
+                        </button>
+                    </div>
+                 </div>
+
+                 <Dashboard 
+                   companies={companies} 
+                   onCompanyClick={handleCompanyClick} 
+                   monthlySchedules={monthlySchedules}
+                 />
+              </div>
+            )}
+
+            {activeTab === 'detail' && selectedCompany && (
+              <ClientDetail 
+                company={selectedCompany} 
+                onBack={handleBackToDashboard}
+                onUpdateCompany={handleUpdateCompany}
+                isAdminMode={isAdminMode}
+                monthlySchedules={monthlySchedules}
+              />
+            )}
+
+            {activeTab === 'statistics' && (
+                <div className="animate-fade-in">
+                    <div className="flex items-center mb-6">
+                        <button onClick={() => setActiveTab('dashboard')} className="mr-4 p-2 hover:bg-gray-100 rounded-full transition-colors">
+                            <ArrowLeft size={20} className="text-gray-600"/>
+                        </button>
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-900">통계 및 분석</h2>
+                            <p className="text-sm text-gray-500 mt-1">서비스 데이터를 분석합니다.</p>
+                        </div>
+                    </div>
+                    <Statistics companies={companies} />
+                </div>
+            )}
+          </>
+        )}
+      </main>
+
+      {/* Admin Auth Modal */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center"><Lock size={18} className="mr-2 text-blue-600"/>관리자 인증</h3>
+              <button onClick={() => setIsAuthModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleAdminAuth} className="p-6">
+               <div className="mb-5">
+                 <label className="block text-sm font-medium text-gray-700 mb-1.5">비밀번호</label>
+                 <input 
+                    type="password" 
+                    value={authPassword} 
+                    onChange={(e) => setAuthPassword(e.target.value)} 
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" 
+                    placeholder="비밀번호를 입력하세요"
+                    autoFocus
+                  />
+               </div>
+               <button type="submit" className="w-full px-4 py-2.5 text-white bg-blue-600 rounded-xl hover:bg-blue-700 font-medium shadow-lg shadow-blue-100 transition-all">인증하기</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* New Installation Modal */}
+      <NewInstallationModal 
+        isOpen={isNewInstallModalOpen}
+        onClose={() => setIsNewInstallModalOpen(false)}
+        onSave={handleSaveNewInstallation}
+      />
+    </div>
+  );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+    </script>
+</body>
+</html>
